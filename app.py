@@ -110,6 +110,49 @@ def revoke_token():
     db.revocation_list.insert_one({"token_hash": token_hash})
     return jsonify({"message": "Token revoked successfully"}), 200
 
+# ✅ 5. Access Resource with Token
+@app.route("/access-resource", methods=["POST"])
+def access_resource():
+    data = request.get_json()
+    token = data.get("token")
+    action = data.get("action")  # e.g., read/write
+
+    if not token or not action:
+        return jsonify({"error": "Token and action are required"}), 400
+
+    try:
+        token_str, signature_hex = token.split("::")
+        signature = bytes.fromhex(signature_hex)
+
+        # Verify Signature
+        hash_obj = SHA256.new(token_str.encode())
+        pkcs1_15.new(private_key.public_key()).verify(hash_obj, signature)
+
+        token_data = json.loads(token_str)
+
+        # Check expiry
+        expiry = datetime.strptime(token_data["expiry"], "%Y-%m-%d %H:%M:%S")
+        if datetime.utcnow() > expiry:
+            return jsonify({"error": "Token has expired"}), 403
+
+        # Check if token is revoked
+        token_hash = hashlib.sha256(token.encode()).hexdigest()
+        if db.revocation_list.find_one({"token_hash": token_hash}):
+            return jsonify({"error": "Token has been revoked"}), 403
+
+        # Check if requested action is allowed
+        allowed_actions = token_data["rights"].split(",")
+        if action not in allowed_actions:
+            return jsonify({"error": "Access denied. Insufficient rights"}), 403
+
+        return jsonify({"message": f"Access granted to perform '{action}' on the resource"}), 200
+
+    except (ValueError, KeyError, json.JSONDecodeError):
+        return jsonify({"error": "Invalid token format or contents"}), 400
+    except (pkcs1_15.SignatureError, Exception):
+        return jsonify({"error": "Token verification failed"}), 403
+
+
 # ✅ Root Check
 @app.route("/")
 def home():
