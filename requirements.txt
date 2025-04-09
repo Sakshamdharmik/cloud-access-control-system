@@ -3,3 +3,4 @@ flask-mysqldb
 pycryptodome
 python-dotenv
 mysql-connector-python
+gunicorn
